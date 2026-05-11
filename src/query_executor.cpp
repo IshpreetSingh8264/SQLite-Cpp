@@ -125,23 +125,23 @@ QueryResult QueryExecutor::fullTableScan(const SelectQuery& query, const TableDe
         
         if (query.select_all || query.columns.empty()) {
             // Saare columns (all columns)
-            // Agar pehla column rowid aa te rowid add kar
-            // (If first column is rowid then add rowid)
-            size_t record_start_index = 0;
-            
             if (has_rowid_column) {
                 // Pehla column table definition vich rowid aa
                 // (First column in table definition is rowid)
                 row.push_back(std::to_string(record.getRowId()));
-                // Record pehle column ton shuru nahi, kyunki oh rowid aa
-                // (Record doesn't start from first column, since that's rowid)
-                // Record actually doosre column ton shuru (start from second column)
-            }
-            
-            // Record de saare columns add kar
-            // (Add all columns from record)
-            for (size_t i = record_start_index; i < record.getColumnCount(); ++i) {
-                row.push_back(columnValueToString(record.getColumnValue(i)));
+                // Record pehle column vich NULL placeholder aa, skip kar
+                // (Record first column has NULL placeholder, skip it)
+                // Baaki columns (1 onwards) output kar
+                // (Output remaining columns (1 onwards))
+                for (size_t i = 1; i < record.getColumnCount(); ++i) {
+                    row.push_back(columnValueToString(record.getColumnValue(i)));
+                }
+            } else {
+                // Koi rowid column nahi - saare record columns output kar
+                // (No rowid column - output all record columns)
+                for (size_t i = 0; i < record.getColumnCount(); ++i) {
+                    row.push_back(columnValueToString(record.getColumnValue(i)));
+                }
             }
         } else {
             // Specific columns
@@ -204,7 +204,11 @@ bool QueryExecutor::evaluateWhere(const Record& record, const WhereCondition& wh
     } else {
         // Record vichon value kadho
         // (Get value from record)
-        int record_index = has_rowid_column ? col_index - 1 : col_index;
+        // Note: record vich pehla column NULL placeholder aa agar has_rowid_column
+        // (Note: first column in record is NULL placeholder if has_rowid_column)
+        // So same index use kar
+        // (So use same index)
+        int record_index = col_index;
         
         if (record_index < 0 || record_index >= static_cast<int>(record.getColumnCount())) {
             return false;
@@ -245,9 +249,13 @@ std::vector<std::string> QueryExecutor::extractColumns(const Record& record,
                 // (First column is rowid)
                 values.push_back(std::to_string(record.getRowId()));
             } else {
-                // Record vichon kadho - rowid column skip karni aa
-                // (Get from record - skip rowid column)
-                int record_index = has_rowid_column ? col_index - 1 : col_index;
+                // Record vichon kadho
+                // (Get from record)
+                // Note: agar has_rowid_column aa, te record de pehle column vich NULL placeholder aa
+                // (Note: if has_rowid_column is true, first record column has NULL placeholder)
+                // So actual columns record vich col_index te shuru nahi, balki same index te ne
+                // (So actual columns in record start at same index, not col_index - 1)
+                int record_index = col_index;  // Same as schema index!
                 
                 if (record_index >= 0 && record_index < static_cast<int>(record.getColumnCount())) {
                     values.push_back(columnValueToString(record.getColumnValue(record_index)));

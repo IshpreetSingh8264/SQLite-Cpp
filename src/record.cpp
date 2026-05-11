@@ -1,8 +1,8 @@
 #include "record.hpp"
+#include <cmath>
 #include <cstring>
 #include <sstream>
 #include <stdexcept>
-#include <cmath>
 
 // ============================================================================
 // RECORD.CPP - SQLite Record Decoder Implementation
