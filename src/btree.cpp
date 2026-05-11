@@ -245,20 +245,77 @@ size_t BTree::countRecords() {
 // Binary search use karde - sorted tree aa
 // (Use binary search - it's sorted tree)
 std::optional<Record> BTree::findByKey(int64_t key) {
-    // Simple implementation - scan karke match dhundho
-    // (Simple implementation - scan and find match)
-    // Production vich binary search use karna chaiye
-    // (In production should use binary search)
+    // Proper B-tree search - root ton shuru
+    // (Proper B-tree search - start from root)
+    return findByKeyInPage(root_page_number_, key);
+}
+
+// ----------------------------------------------------------------------------
+// Find By Key In Page - Specific page vich key dhundho
+// (Find key in specific page)
+// ----------------------------------------------------------------------------
+std::optional<Record> BTree::findByKeyInPage(uint32_t page_number, int64_t key) {
+    auto page_data = database_.readPage(page_number);
+    Page page(page_number, page_data, database_.getPageSize());
     
-    std::optional<Record> result;
+    uint16_t cell_count = page.getCellCount();
     
-    scanAll([&](const Record& record) {
-        if (record.getRowId() == key) {
-            result = record;
+    if (page.isLeaf()) {
+        // Leaf page - iterate through cells to find matching rowid
+        // (Leaf page - iterate through cells to find matching rowid)
+        for (uint16_t i = 0; i < cell_count; ++i) {
+            try {
+                auto cell_payload = page.getCellPayload(i);
+                Record record = decodeTableLeafCell(cell_payload);
+                
+                if (record.getRowId() == key) {
+                    return record;
+                }
+            } catch (const std::exception&) {
+                continue;
+            }
         }
-    });
-    
-    return result;
+        return std::nullopt;
+    } else {
+        // Interior page - navigate to correct child
+        // (Interior page - navigate to correct child)
+        for (uint16_t i = 0; i < cell_count; ++i) {
+            try {
+                auto cell_payload = page.getCellPayload(i);
+                
+                // Interior cell format: [left_child (4 bytes)] [key (varint)]
+                // (Interior cell format: [left_child (4 bytes)] [key (varint)])
+                const uint8_t* data = cell_payload.data();
+                
+                uint32_t left_child = (static_cast<uint32_t>(data[0]) << 24) |
+                                     (static_cast<uint32_t>(data[1]) << 16) |
+                                     (static_cast<uint32_t>(data[2]) << 8) |
+                                     data[3];
+                
+                // Key varint padho
+                // (Read key varint)
+                size_t bytes_read = 0;
+                int64_t cell_key = static_cast<int64_t>(readVarint(data + 4, bytes_read));
+                
+                if (key <= cell_key) {
+                    // Key left subtree vich aa
+                    // (Key is in left subtree)
+                    return findByKeyInPage(left_child, key);
+                }
+            } catch (const std::exception&) {
+                continue;
+            }
+        }
+        
+        // Key right-most subtree vich aa
+        // (Key is in right-most subtree)
+        uint32_t rightmost = page.getRightmostPointer();
+        if (rightmost > 0 && rightmost <= database_.getPageCount()) {
+            return findByKeyInPage(rightmost, key);
+        }
+        
+        return std::nullopt;
+    }
 }
 
 // ============================================================================
@@ -282,24 +339,118 @@ IndexBTree::IndexBTree(Database& database, uint32_t root_page_number)
 std::vector<int64_t> IndexBTree::findRowIds(const std::string& key) {
     std::vector<int64_t> rowids;
     
-    // Saare index entries scan kar
-    // (Scan all index entries)
-    scanAll([&](const Record& record) {
-        // Pehla column index key aa
-        // (First column is index key)
-        auto index_key = record.getString(0);
-        
-        if (index_key && *index_key == key) {
-            // Match mileya - rowid kadho (second column vich)
-            // (Found match - get rowid (in second column))
-            auto rowid = record.getInt(1);
-            if (rowid) {
-                rowids.push_back(*rowid);
-            }
-        }
-    });
+    // Proper B-tree search - root ton shuru
+    // (Proper B-tree search - start from root)
+    findRowIdsInPage(root_page_number_, key, rowids);
     
     return rowids;
+}
+
+// ----------------------------------------------------------------------------
+// Find Row IDs In Page - Specific page vich key dhundho
+// (Find key in specific page)
+// ----------------------------------------------------------------------------
+void IndexBTree::findRowIdsInPage(uint32_t page_number, const std::string& key, std::vector<int64_t>& rowids) {
+    auto page_data = database_.readPage(page_number);
+    Page page(page_number, page_data, database_.getPageSize());
+    
+    uint16_t cell_count = page.getCellCount();
+    
+    if (page.isLeaf()) {
+        // Index leaf page - cells vich key+rowid ne
+        // (Index leaf page - cells have key+rowid)
+        for (uint16_t i = 0; i < cell_count; ++i) {
+            try {
+                auto cell_payload = page.getCellPayload(i);
+                Record record = decodeIndexLeafCell(cell_payload);
+                
+                // Pehla column index key aa
+                // (First column is index key)
+                auto index_key = record.getString(0);
+                
+                if (index_key) {
+                    if (*index_key == key) {
+                        // Match mileya!
+                        // (Found match!)
+                        // Index record vich last column rowid hunda (rowid vich stored hunda)
+                        // (In index record, rowid is stored as the last column value or in record rowid)
+                        // Actually SQLite index stores rowid as last column in index payload
+                        auto rowid = record.getInt(record.getColumnCount() - 1);
+                        if (rowid) {
+                            rowids.push_back(*rowid);
+                        }
+                    } else if (*index_key > key) {
+                        // Index sorted aa - agar key ton wadda milya te aage nahi dekhna
+                        // (Index is sorted - if found greater than key, no need to look further)
+                        break;
+                    }
+                }
+            } catch (const std::exception&) {
+                continue;
+            }
+        }
+    } else {
+        // Index interior page - navigate to correct children
+        // (Index interior page - navigate to correct children)
+        bool found_smaller = false;
+        
+        for (uint16_t i = 0; i < cell_count; ++i) {
+            try {
+                auto cell_payload = page.getCellPayload(i);
+                
+                // Index interior cell format: [left_child (4 bytes)] [payload_size (varint)] [payload (record)]
+                const uint8_t* data = cell_payload.data();
+                
+                uint32_t left_child = (static_cast<uint32_t>(data[0]) << 24) |
+                                     (static_cast<uint32_t>(data[1]) << 16) |
+                                     (static_cast<uint32_t>(data[2]) << 8) |
+                                     data[3];
+                
+                // Payload size padho
+                // (Read payload size)
+                size_t bytes_read = 0;
+                uint64_t payload_size = readVarint(data + 4, bytes_read);
+                size_t offset = 4 + bytes_read;
+                
+                // Record decode karo - index key kadho
+                // (Decode record - get index key)
+                std::vector<uint8_t> record_payload(data + offset, data + offset + payload_size);
+                Record record;
+                if (!record.decode(record_payload)) {
+                    continue;
+                }
+                
+                auto cell_key = record.getString(0);
+                
+                if (cell_key && key <= *cell_key) {
+                    // Key left subtree vich ho sakdi - check karo
+                    // (Key might be in left subtree - check it)
+                    findRowIdsInPage(left_child, key, rowids);
+                    
+                    // Agar exact match aa te continue karo right side vi check karne lai
+                    // (If exact match then continue to check right side too)
+                    if (key < *cell_key) {
+                        return;  // Key can only be in left subtree
+                    }
+                    found_smaller = true;
+                } else if (!found_smaller) {
+                    // Key left subtree vich aa - first check kar
+                    // (Key is in left subtree - check first)
+                    findRowIdsInPage(left_child, key, rowids);
+                    found_smaller = true;
+                }
+            } catch (const std::exception&) {
+                continue;
+            }
+        }
+        
+        // Right-most child vi check karo agar zaroori
+        // (Check right-most child too if needed)
+        uint32_t rightmost = page.getRightmostPointer();
+        if (rightmost > 0 && rightmost <= database_.getPageCount()) {
+            findRowIdsInPage(rightmost, key, rowids);
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------

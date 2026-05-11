@@ -72,6 +72,10 @@ private:
     // (Get left child page number from interior cell)
     uint32_t getLeftChildPointer(const std::vector<uint8_t>& cell_data);
     
+    // Page vich key dhundho - recursive helper
+    // (Find key in page - recursive helper)
+    std::optional<Record> findByKeyInPage(uint32_t page_number, int64_t key);
+
     // Member variables - BTree de andar da data
     // (Data inside BTree)
     Database& database_;                // Database reference - file padhne lai (for reading file)
@@ -109,6 +113,10 @@ private:
     
     // Interior page scan for index
     void scanIndexInteriorPage(uint32_t page_number, std::function<void(const Record&)> callback);
+    
+    // B-tree search helper - specific page vich key dhundho
+    // (B-tree search helper - find key in specific page)
+    void findRowIdsInPage(uint32_t page_number, const std::string& key, std::vector<int64_t>& rowids);
     
     Database& database_;
     uint32_t root_page_number_;

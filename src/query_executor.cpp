@@ -161,15 +161,77 @@ QueryResult QueryExecutor::fullTableScan(const SelectQuery& query, const TableDe
 // ----------------------------------------------------------------------------
 QueryResult QueryExecutor::indexScan(const SelectQuery& query, const TableDefinition* table_def,
                                     const IndexDefinition* index_def) {
-    // Simple implementation - full scan hi kar
-    // (Simple implementation - just do full scan)
-    // Production vich actual index scan karna chaiye
-    // (In production should do actual index scan)
+    QueryResult result;
     
-    // For now, fall back to full table scan
-    // Future: Implement proper index-based lookup
+    // Column names set kar
+    // (Set column names)
+    if (query.select_all || query.columns.empty()) {
+        for (const auto& col : table_def->columns) {
+            result.column_names.push_back(col.name);
+        }
+    } else {
+        result.column_names = query.columns;
+    }
     
-    return fullTableScan(query, table_def);
+    // Check karo ki pehla column INTEGER PRIMARY KEY aa
+    // (Check if first column is INTEGER PRIMARY KEY)
+    bool has_rowid_column = false;
+    if (!table_def->columns.empty() && table_def->columns[0].is_primary_key) {
+        has_rowid_column = true;
+    }
+    
+    // WHERE value kadho - string vich convert kar
+    // (Get WHERE value - convert to string)
+    std::string search_key;
+    if (std::holds_alternative<std::string>(query.where->value)) {
+        search_key = std::get<std::string>(query.where->value);
+    } else if (std::holds_alternative<int64_t>(query.where->value)) {
+        search_key = std::to_string(std::get<int64_t>(query.where->value));
+    } else if (std::holds_alternative<double>(query.where->value)) {
+        search_key = std::to_string(std::get<double>(query.where->value));
+    }
+    
+    // Index B-tree use karke matching rowids dhundho
+    // (Find matching rowids using index B-tree)
+    IndexBTree index_tree(database_, index_def->root_page);
+    std::vector<int64_t> rowids = index_tree.findRowIds(search_key);
+    
+    // Har rowid lai table vichon record kadho
+    // (For each rowid, get record from table)
+    BTree table_tree(database_, table_def->root_page);
+    
+    for (int64_t rowid : rowids) {
+        auto record_opt = table_tree.findByKey(rowid);
+        
+        if (record_opt) {
+            const Record& record = *record_opt;
+            
+            // Columns extract kar record vichon
+            // (Extract columns from record)
+            std::vector<std::string> row;
+            
+            if (query.select_all || query.columns.empty()) {
+                // Saare columns (all columns)
+                if (has_rowid_column) {
+                    row.push_back(std::to_string(record.getRowId()));
+                    for (size_t i = 1; i < record.getColumnCount(); ++i) {
+                        row.push_back(columnValueToString(record.getColumnValue(i)));
+                    }
+                } else {
+                    for (size_t i = 0; i < record.getColumnCount(); ++i) {
+                        row.push_back(columnValueToString(record.getColumnValue(i)));
+                    }
+                }
+            } else {
+                row = extractColumns(record, query.columns, table_def);
+            }
+            
+            result.rows.push_back(row);
+            result.row_count++;
+        }
+    }
+    
+    return result;
 }
 
 // ----------------------------------------------------------------------------
