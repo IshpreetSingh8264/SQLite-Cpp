@@ -175,21 +175,40 @@ std::vector<uint8_t> Page::getCellPayload(uint16_t cell_index) const {
     if (isInterior()) {
         // Interior cell format:
         // - 4 bytes: left child page number
-        // - varint: key (for table lookup, not used in simple scan)
-        // (Interior cell format: 4 bytes left child + key (varint))
-        
-        // For scanInteriorPage in btree.cpp, we only need the left child pointer
-        // So just return those 4 bytes
-        // (For scanning, we only need left child pointer)
+        // - varint: key (for table) or payload_size + payload (for index)
+        // (Interior cell format: 4 bytes left child + key (varint) for table)
         
         if (cell_offset + 4 > data_.size()) {
             throw std::runtime_error("Interior cell: cannot read left child pointer!");
         }
         
-        // Return just the left child pointer (4 bytes)
-        // The caller (getLeftChildPointer in btree.cpp) will extract it
-        // (Return just left child pointer for btree scanning)
-        return std::vector<uint8_t>(&data_[cell_offset], &data_[cell_offset + 4]);
+        if (type_ == PageType::INTERIOR_TABLE) {
+            // Table interior: 4 bytes child + varint key
+            // Return enough bytes to read both
+            // (Table interior: 4 bytes child + varint key, return enough bytes)
+            size_t max_varint_size = 9;  // Max varint size
+            size_t total_size = 4 + max_varint_size;
+            if (cell_offset + total_size > data_.size()) {
+                total_size = data_.size() - cell_offset;
+            }
+            return std::vector<uint8_t>(data_.data() + cell_offset, data_.data() + cell_offset + total_size);
+        } else {
+            // Index interior: 4 bytes child + payload_size + payload
+            // Return enough to read the payload
+            // (Index interior: 4 bytes child + payload_size + payload)
+            size_t remaining_from_varint = data_.size() - cell_offset - 4;
+            if (remaining_from_varint < 1) {
+                // Not enough data for varint
+                return std::vector<uint8_t>(data_.data() + cell_offset, data_.data() + cell_offset + 4);
+            }
+            size_t bytes_read_temp = 0;
+            uint64_t payload_size = readVarintSafe(&data_[cell_offset + 4], remaining_from_varint, bytes_read_temp);
+            size_t total_size = 4 + bytes_read_temp + static_cast<size_t>(payload_size);
+            if (cell_offset + total_size > data_.size()) {
+                total_size = data_.size() - cell_offset;
+            }
+            return std::vector<uint8_t>(data_.data() + cell_offset, data_.data() + cell_offset + total_size);
+        }
     } else {
         // Leaf cell - return raw cell data
         // (Leaf cell - return raw cell data)
@@ -257,6 +276,47 @@ uint64_t Page::readVarint(const uint8_t* data, size_t& bytes_read) {
     uint8_t ninth_byte = data[8];
     bytes_read++;
     result = (result << 8) | ninth_byte;
+    
+    return result;
+}
+
+// ----------------------------------------------------------------------------
+// Read Varint Safe - Bounds-checked version
+// (Bounds-checked version)
+// ----------------------------------------------------------------------------
+uint64_t Page::readVarintSafe(const uint8_t* data, size_t max_len, size_t& bytes_read) {
+    uint64_t result = 0;
+    bytes_read = 0;
+    
+    if (max_len == 0) {
+        return 0;
+    }
+    
+    // Pehle 8 bytes process karo - har byte vich 7 bits value
+    // (Process first 8 bytes - 7 bits value in each byte)
+    size_t limit = std::min(static_cast<size_t>(8), max_len);
+    for (size_t i = 0; i < limit; ++i) {
+        uint8_t byte = data[i];
+        bytes_read++;
+        
+        // 7 bits kadho (lower 7 bits)
+        // (Get 7 bits (lower 7 bits))
+        result = (result << 7) | (byte & 0x7F);
+        
+        // MSB check karo - 0 hai te varint khatam
+        // (Check MSB - if 0 then varint ends)
+        if ((byte & 0x80) == 0) {
+            return result;
+        }
+    }
+    
+    // Agar 8 bytes de baad vi continuation aa te 9th byte puri use ho
+    // (If continuation after 8 bytes then 9th byte is fully used)
+    if (bytes_read == 8 && max_len >= 9) {
+        uint8_t ninth_byte = data[8];
+        bytes_read++;
+        result = (result << 8) | ninth_byte;
+    }
     
     return result;
 }

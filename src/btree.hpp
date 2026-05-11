@@ -116,7 +116,7 @@ private:
     
     // B-tree search helper - specific page vich key dhundho
     // (B-tree search helper - find key in specific page)
-    void findRowIdsInPage(uint32_t page_number, const std::string& key, std::vector<int64_t>& rowids);
+    void findRowIdsInPage(uint32_t page_number, const std::string& key, std::vector<int64_t>& rowids, int& total_cells);
     
     Database& database_;
     uint32_t root_page_number_;

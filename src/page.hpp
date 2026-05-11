@@ -86,6 +86,9 @@ public:
     // (In SQLite numbers are flexible size, to save space)
     static uint64_t readVarint(const uint8_t* data, size_t& bytes_read);
     
+    // Safe version with bounds checking
+    static uint64_t readVarintSafe(const uint8_t* data, size_t max_len, size_t& bytes_read);
+    
 private:
     // Helper methods - Andar de kaam (Internal work)
     void parseHeader();                     // Header parse karo (parse header)
