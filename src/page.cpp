@@ -173,40 +173,23 @@ std::vector<uint8_t> Page::getCellPayload(uint16_t cell_index) const {
     size_t bytes_read = 0;
     
     if (isInterior()) {
-        // Interior cell - pehle left child pointer (4 bytes)
-        // (Interior cell - first left child pointer (4 bytes))
+        // Interior cell format:
+        // - 4 bytes: left child page number
+        // - varint: key (for table lookup, not used in simple scan)
+        // (Interior cell format: 4 bytes left child + key (varint))
+        
+        // For scanInteriorPage in btree.cpp, we only need the left child pointer
+        // So just return those 4 bytes
+        // (For scanning, we only need left child pointer)
+        
         if (cell_offset + 4 > data_.size()) {
-            throw std::runtime_error("Interior cell incomplete!");
+            throw std::runtime_error("Interior cell: cannot read left child pointer!");
         }
         
-        // Left child skip kar (4 bytes)
-        // (Skip left child (4 bytes))
-        cell_offset += 4;
-        cell_data += 4;
-        
-        if (type_ == PageType::INTERIOR_TABLE) {
-            // Interior table - rowid aa (varint)
-            // (Interior table - has rowid (varint))
-            uint64_t rowid = readVarint(cell_data, bytes_read);
-            
-            // Rowid ke baad payload nahi hunda interior vich
-            // (No payload after rowid in interior)
-            return std::vector<uint8_t>();
-        } else {
-            // Interior index - payload aa
-            // (Interior index - has payload)
-            uint64_t payload_size = readVarint(cell_data, bytes_read);
-            cell_data += bytes_read;
-            cell_offset += bytes_read;
-            
-            // Payload return kar
-            // (Return payload)
-            if (cell_offset + payload_size > data_.size()) {
-                throw std::runtime_error("Payload size exceeds page!");
-            }
-            
-            return std::vector<uint8_t>(cell_data, cell_data + payload_size);
-        }
+        // Return just the left child pointer (4 bytes)
+        // The caller (getLeftChildPointer in btree.cpp) will extract it
+        // (Return just left child pointer for btree scanning)
+        return std::vector<uint8_t>(&data_[cell_offset], &data_[cell_offset + 4]);
     } else {
         // Leaf cell - return raw cell data
         // (Leaf cell - return raw cell data)
