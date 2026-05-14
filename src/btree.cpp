@@ -1,6 +1,5 @@
 #include "btree.hpp"
 #include <stdexcept>
-#include <iostream>
 
 // ============================================================================
 // BTREE.CPP - SQLite B-Tree Navigator Implementation
@@ -344,10 +343,7 @@ std::vector<int64_t> IndexBTree::findRowIds(const std::string& key) {
     // (Scan index to find matching entries)
     // Index leaf pages vich [key, rowid] stored hunda
     // (In index leaf pages, [key, rowid] is stored)
-    int total_cells = 0;
-    findRowIdsInPage(root_page_number_, key, rowids, total_cells);
-    
-    std::cerr << "[DEBUG] Total cells scanned: " << total_cells << std::endl;
+    findRowIdsInPage(root_page_number_, key, rowids);
     
     return rowids;
 }
@@ -356,28 +352,15 @@ std::vector<int64_t> IndexBTree::findRowIds(const std::string& key) {
 // Find Row IDs In Page - Specific page vich key dhundho
 // (Find key in specific page)
 // ----------------------------------------------------------------------------
-void IndexBTree::findRowIdsInPage(uint32_t page_number, const std::string& key, std::vector<int64_t>& rowids, int& total_cells) {
+void IndexBTree::findRowIdsInPage(uint32_t page_number, const std::string& key, std::vector<int64_t>& rowids) {
     auto page_data = database_.readPage(page_number);
     Page page(page_number, page_data, database_.getPageSize());
     
     uint16_t cell_count = page.getCellCount();
     
-    std::cerr << "[DEBUG] Page " << page_number << " isLeaf=" << page.isLeaf() << " cells=" << cell_count << std::endl;
-    
     if (page.isLeaf()) {
         // Index leaf page - cells vich key+rowid ne
         // (Index leaf page - cells have key+rowid)
-        int success = 0;
-        int exceptions = 0;
-        int null_key = 0;
-        int null_rowid = 0;
-        
-        total_cells += cell_count;  // Track cells
-        
-        // Log first few entries of page 1760
-        if (page_number == 1760) {
-            std::cerr << "[DEBUG] Page 1760 scanning " << cell_count << " cells" << std::endl;
-        }
         
         for (uint16_t i = 0; i < cell_count; ++i) {
             try {
@@ -387,71 +370,29 @@ void IndexBTree::findRowIdsInPage(uint32_t page_number, const std::string& key, 
                 // Pehla column index key aa
                 // (First column is index key)
                 auto index_key = record.getString(0);
+                if (!index_key) continue;
+                
                 size_t last_col = record.getColumnCount() - 1;
                 auto rowid = record.getInt(last_col);
-                
-                if (!index_key) {
-                    null_key++;
-                    continue;
-                }
-                if (!rowid) {
-                    null_rowid++;
-                    continue;
-                }
-                
-                success++;
-                
-                // Check if this is our missing rowid
-                if (*rowid == 5729848) {
-                    std::cerr << "[DEBUG] !!! Found rowid=5729848 with key='" << *index_key << "' in page " << page_number << std::endl;
-                }
-                
-                // Log all eritrea entries to see what we're finding
-                if (*index_key == "eritrea") {
-                    std::cerr << "[DEBUG] Page " << page_number << " has eritrea rowid=" << *rowid << std::endl;
-                }
-                
-                // Log first few entries of page 1760 specifically
-                if (page_number == 1760 && i < 5) {
-                    std::cerr << "[DEBUG] Page 1760 cell " << i << " key='" << *index_key << "' rowid=" << *rowid << std::endl;
-                }
-                
-                // Log last few entries of page 1759
-                if (page_number == 1759 && i >= cell_count - 5) {
-                    std::cerr << "[DEBUG] Page 1759 cell " << i << " key='" << *index_key << "' rowid=" << *rowid << std::endl;
-                }
+                if (!rowid) continue;
                 
                 if (*index_key == key) {
-                    // Match mileya!
-                    // (Found match!)
-                    std::cerr << "[DEBUG] MATCH! Page " << page_number << " rowid=" << *rowid << std::endl;
                     rowids.push_back(*rowid);
                 }
-            } catch (const std::exception& e) {
-                exceptions++;
+            } catch (const std::exception&) {
                 continue;
             }
         }
-        
-        // Only log if there are issues
-        if (exceptions > 0 || null_key > 0 || null_rowid > 0) {
-            std::cerr << "[DEBUG] Page " << page_number << " cells=" << cell_count 
-                      << " success=" << success << " null_key=" << null_key 
-                      << " null_rowid=" << null_rowid << " exceptions=" << exceptions << std::endl;
-        }
     } else {
-        // Index interior page - visit all children
-        // (Index interior page - visit all children)
-        // This is simpler and correct; optimization can come later
-        
-        std::cerr << "[DEBUG] Interior page " << page_number << " cells=" << cell_count << std::endl;
+        // Index interior page - visit all children AND check cell keys
+        // (Index interior page - visit all children AND check cell keys)
+        // IMPORTANT: Index entries can be stored in interior cells (not just leaf)!
         
         for (uint16_t i = 0; i < cell_count; ++i) {
             try {
                 auto cell_payload = page.getCellPayload(i);
                 
                 if (cell_payload.size() < 4) {
-                    std::cerr << "[DEBUG] Cell " << i << " payload too small: " << cell_payload.size() << std::endl;
                     continue;
                 }
                 
@@ -463,29 +404,27 @@ void IndexBTree::findRowIdsInPage(uint32_t page_number, const std::string& key, 
                                      (static_cast<uint32_t>(data[2]) << 8) |
                                      data[3];
                 
-                // Decode the cell key for debugging
+                // Check interior cell for match - index entries can be in interior cells!
+                // (Check interior cell for match - index entries can be in interior cells!)
                 if (cell_payload.size() > 4) {
-                    size_t bytes_read = 0;
                     std::vector<uint8_t> payload_data(cell_payload.begin() + 4, cell_payload.end());
                     try {
                         Record cell_record = decodeIndexLeafCell(payload_data);
                         auto cell_key = cell_record.getString(0);
-                        size_t last_col = cell_record.getColumnCount() - 1;
-                        auto cell_rowid = cell_record.getInt(last_col);
-                        if (cell_key && (*cell_key == "eritrea" || *cell_key == "ethiopia" || *cell_key == "el salvador")) {
-                            std::cerr << "[DEBUG] Interior page " << page_number << " cell " << i 
-                                      << " left_child=" << left_child 
-                                      << " key=" << *cell_key 
-                                      << " rowid=" << (cell_rowid ? *cell_rowid : -1) << std::endl;
+                        if (cell_key && *cell_key == key) {
+                            size_t last_col = cell_record.getColumnCount() - 1;
+                            auto cell_rowid = cell_record.getInt(last_col);
+                            if (cell_rowid) {
+                                rowids.push_back(*cell_rowid);
+                            }
                         }
                     } catch (...) {
                     }
                 }
                 
                 // Visit left child
-                findRowIdsInPage(left_child, key, rowids, total_cells);
-            } catch (const std::exception& e) {
-                std::cerr << "[DEBUG] Interior cell " << i << " exception: " << e.what() << std::endl;
+                findRowIdsInPage(left_child, key, rowids);
+            } catch (const std::exception&) {
                 continue;
             }
         }
@@ -493,9 +432,8 @@ void IndexBTree::findRowIdsInPage(uint32_t page_number, const std::string& key, 
         // Right-most child vi visit karo
         // (Visit right-most child too)
         uint32_t rightmost = page.getRightmostPointer();
-        std::cerr << "[DEBUG] Page " << page_number << " rightmost=" << rightmost << std::endl;
         if (rightmost > 0 && rightmost <= database_.getPageCount()) {
-            findRowIdsInPage(rightmost, key, rowids, total_cells);
+            findRowIdsInPage(rightmost, key, rowids);
         }
     }
 }
