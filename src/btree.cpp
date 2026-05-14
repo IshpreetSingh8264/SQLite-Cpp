@@ -384,11 +384,21 @@ void IndexBTree::findRowIdsInPage(uint32_t page_number, const std::string& key, 
             }
         }
     } else {
-        // Index interior page - visit all children AND check cell keys
-        // (Index interior page - visit all children AND check cell keys)
+        // Index interior page - use B-tree navigation to find relevant children
+        // (Index interior page - use B-tree navigation to find relevant children)
         // IMPORTANT: Index entries can be stored in interior cells (not just leaf)!
         
-        for (uint16_t i = 0; i < cell_count; ++i) {
+        // Each cell has: [left_child] [key]
+        // Cell[i].key is the FIRST key in cell[i+1].left_child (or rightmost)
+        // So: entries in cell[i].left_child have keys < cell[i].key
+        //     entries in cell[i+1].left_child have keys >= cell[i].key and < cell[i+1].key
+        
+        // Find range of children that might contain our key
+        // We need to visit children where key could be present
+        bool found_start = false;
+        bool passed_end = false;
+        
+        for (uint16_t i = 0; i < cell_count && !passed_end; ++i) {
             try {
                 auto cell_payload = page.getCellPayload(i);
                 
@@ -404,36 +414,61 @@ void IndexBTree::findRowIdsInPage(uint32_t page_number, const std::string& key, 
                                      (static_cast<uint32_t>(data[2]) << 8) |
                                      data[3];
                 
-                // Check interior cell for match - index entries can be in interior cells!
-                // (Check interior cell for match - index entries can be in interior cells!)
+                // Decode cell key
+                std::string cell_key_str;
                 if (cell_payload.size() > 4) {
                     std::vector<uint8_t> payload_data(cell_payload.begin() + 4, cell_payload.end());
                     try {
                         Record cell_record = decodeIndexLeafCell(payload_data);
                         auto cell_key = cell_record.getString(0);
-                        if (cell_key && *cell_key == key) {
-                            size_t last_col = cell_record.getColumnCount() - 1;
-                            auto cell_rowid = cell_record.getInt(last_col);
-                            if (cell_rowid) {
-                                rowids.push_back(*cell_rowid);
+                        if (cell_key) {
+                            cell_key_str = *cell_key;
+                            
+                            // Check for exact match in interior cell
+                            if (cell_key_str == key) {
+                                size_t last_col = cell_record.getColumnCount() - 1;
+                                auto cell_rowid = cell_record.getInt(last_col);
+                                if (cell_rowid) {
+                                    rowids.push_back(*cell_rowid);
+                                }
                             }
                         }
                     } catch (...) {
                     }
                 }
                 
-                // Visit left child
-                findRowIdsInPage(left_child, key, rowids);
+                // Determine if we should visit left_child
+                // left_child contains entries < cell_key
+                // So we visit left_child if: key < cell_key OR key == cell_key (for prefix match)
+                if (!found_start && key <= cell_key_str) {
+                    // First cell where our key could be in left subtree
+                    found_start = true;
+                }
+                
+                if (found_start) {
+                    // Visit this child - it might contain matching entries
+                    findRowIdsInPage(left_child, key, rowids);
+                    
+                    // If cell's key > our key, we've passed all possible matches
+                    // But we still need to visit children that could have exact matches
+                    if (cell_key_str > key) {
+                        // After this point, no more matches possible in further children
+                        // (since all keys in subsequent children are >= cell_key > key)
+                        passed_end = true;
+                    }
+                }
             } catch (const std::exception&) {
                 continue;
             }
         }
         
-        // Right-most child vi visit karo
-        // (Visit right-most child too)
-        uint32_t rightmost = page.getRightmostPointer();
-        if (rightmost > 0 && rightmost <= database_.getPageCount()) {
-            findRowIdsInPage(rightmost, key, rowids);
+        // Right-most child vi visit karo if we haven't passed the end
+        // (Visit right-most child too if we haven't passed the end)
+        if (!passed_end) {
+            uint32_t rightmost = page.getRightmostPointer();
+            if (rightmost > 0 && rightmost <= database_.getPageCount()) {
+                findRowIdsInPage(rightmost, key, rowids);
+            }
         }
     }
 }
