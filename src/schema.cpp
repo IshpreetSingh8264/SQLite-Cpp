@@ -1,5 +1,6 @@
 #include "schema.hpp"
 #include "btree.hpp"
+#include "utils/diagnostics.hpp"
 #include <algorithm>
 #include <cctype>
 #include <sstream>
@@ -103,8 +104,13 @@ void Schema::load() {
             }
             
         } catch (const std::exception& e) {
-            // Koi record parse nahi hoyi - skip kar
-            // (Some record didn't parse - skip)
+            // Oh sqlite_schema row parh nahi payi - oh table ya index register
+            // nahi hoga. Chhad de te dasso zaroor, warna user nu "Table not found"
+            // milk e oh sochega table hi nahi hai.
+            // (That sqlite_schema row could not be read - the table or index will
+            // not be registered. Skip it, but say so: otherwise the user gets
+            // "Table not found" and thinks the table does not exist.)
+            report(Severity::Error, "Schema::load(sqlite_schema row)", e.what());
             return;
         }
     });

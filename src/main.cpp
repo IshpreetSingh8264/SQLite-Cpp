@@ -13,6 +13,7 @@
 #include "sql_parser.hpp"
 #include "query_executor.hpp"
 #include "btree.hpp"
+#include "utils/diagnostics.hpp"
 #include <cstring>
 #include <iostream>
 #include <fstream>
@@ -236,8 +237,15 @@ int main(int argc, char* argv[]) {
         // Koi exception aayi - error handle kar
         // (Some exception occurred - handle error)
         std::cerr << "Error: " << e.what() << std::endl;
+        // Ki aaya si oh dass de, ohde naal
+        // (Also report what we collected on the way)
+        sqlite::printSummary();
         return 1;
     }
+    
+    // Agar kade kade koi cell decode nahi hoyi te user nu pata lage
+    // (If any cell failed to decode, make sure the user finds out)
+    sqlite::printSummary();
     
     // Sab kuch theek aa - success!
     // (Everything is fine - success!)

@@ -1,4 +1,5 @@
 #include "btree.hpp"
+#include "utils/diagnostics.hpp"
 #include <stdexcept>
 
 // ============================================================================
@@ -86,8 +87,9 @@ void BTree::scanLeafPage(uint32_t page_number, std::function<void(const Record&)
             // (Call callback - give record to user)
             callback(record);
         } catch (const std::exception& e) {
-            // Koi cell decode nahi hoyi - skip kar te agle te jao
-            // (Some cell didn't decode - skip and go to next)
+            // Cell decode nahi hoyi - row lost ho gayi, par dasso zaroor
+            // (Cell didn't decode - the row is lost, but say so)
+            report(Severity::Error, cellContext(page_number, i, "BTree::scanLeafPage"), e.what());
             continue;
         }
     }
@@ -137,7 +139,11 @@ void BTree::scanInteriorPage(uint32_t page_number, std::function<void(const Reco
                 scanInteriorPage(left_child, callback);
             }
         } catch (const std::exception& e) {
-            // Error aayi - skip kar (error occurred - skip)
+            // Left child padhi nahi ja sakdi - oh subtree kho jaayegi
+            // (Left child unreadable - that whole subtree is lost)
+            report(Severity::Error, cellContext(page_number, static_cast<uint16_t>(i),
+                                                "BTree::scanInteriorPage"),
+                   e.what());
             continue;
         }
     }
@@ -156,7 +162,10 @@ void BTree::scanInteriorPage(uint32_t page_number, std::function<void(const Reco
                 scanInteriorPage(rightmost, callback);
             }
         } catch (const std::exception& e) {
-            // Skip on error
+            // Right-most child padhi nahi ja sakdi - oh subtree kho jaayegi
+            // (Right-most child unreadable - that subtree is lost)
+            report(Severity::Error, pageContext(rightmost, "BTree::scanInteriorPage"),
+                   e.what());
         }
     }
 }
@@ -273,7 +282,12 @@ std::optional<Record> BTree::findByKeyInPage(uint32_t page_number, int64_t key) 
                 if (record.getRowId() == key) {
                     return record;
                 }
-            } catch (const std::exception&) {
+            } catch (const std::exception& e) {
+                // Cell corrupt hai - oh row lookup nahi ho sakdi
+                // (Cell is corrupt - that row cannot be looked up)
+                report(Severity::Error, cellContext(page_number, i,
+                                                    "BTree::findByKeyInPage/leaf"),
+                       e.what());
                 continue;
             }
         }
@@ -304,8 +318,17 @@ std::optional<Record> BTree::findByKeyInPage(uint32_t page_number, int64_t key) 
                     // (Key is in left subtree)
                     return findByKeyInPage(left_child, key);
                 }
-            } catch (const std::exception&) {
-                continue;
+            } catch (const std::exception& e) {
+                // Separator key padhi nahi ja sakdi - ohdi bina hun decide nahi
+                // kinne subtree vich jaana aa. Chhad de te galat result milega,
+                // isliye error aage badha do.
+                // (Separator key unreadable - without it we cannot decide which
+                // subtree to descend into. Skipping would return a wrong result,
+                // so the error is propagated.)
+                report(Severity::Error, cellContext(page_number, i,
+                                                    "BTree::findByKeyInPage/interior"),
+                       e.what());
+                throw;
             }
         }
         

@@ -1,4 +1,5 @@
 #include "btree.hpp"
+#include "utils/diagnostics.hpp"
 #include <stdexcept>
 
 // ============================================================================
@@ -69,7 +70,12 @@ void IndexBTree::findRowIdsInPage(uint32_t page_number, const std::string& key, 
                 if (*index_key == key) {
                     rowids.push_back(*rowid);
                 }
-            } catch (const std::exception&) {
+            } catch (const std::exception& e) {
+                // Index entry decode nahi hoyi - oh rowid miss ho jaayegi
+                // (Index entry didn't decode - that rowid will be missed)
+                report(Severity::Error,
+                       cellContext(page_number, i, "IndexBTree::findRowIdsInPage/leaf"),
+                       e.what());
                 continue;
             }
         }
@@ -124,6 +130,15 @@ void IndexBTree::findRowIdsInPage(uint32_t page_number, const std::string& key, 
                             }
                         }
                     } catch (...) {
+                        // Separator key decode nahi hoyi. Its naal hun decide nahi
+                        // kinne subtree vich jaana, isliye error aage badha do.
+                        // (Separator key didn't decode. Without it we cannot decide
+                        // which subtree to descend into, so the error is propagated.)
+                        report(Severity::Error,
+                               cellContext(page_number, i,
+                                           "IndexBTree::findRowIdsInPage/interior-key"),
+                               "index interior separator key could not be decoded");
+                        throw;
                     }
                 }
                 
@@ -147,8 +162,13 @@ void IndexBTree::findRowIdsInPage(uint32_t page_number, const std::string& key, 
                         passed_end = true;
                     }
                 }
-            } catch (const std::exception&) {
-                continue;
+            } catch (const std::exception& e) {
+                // Left child ya usda recursion fail hoya - error dasso te aage badha do
+                // (Left child or its recursion failed - report and propagate)
+                report(Severity::Error,
+                       cellContext(page_number, i, "IndexBTree::findRowIdsInPage/interior"),
+                       e.what());
+                throw;
             }
         }
         
@@ -195,7 +215,11 @@ void IndexBTree::scanIndexLeafPage(uint32_t page_number, std::function<void(cons
             auto cell_payload = page.getCellPayload(i);
             Record record = decodeIndexLeafCell(cell_payload);
             callback(record);
-        } catch (const std::exception&) {
+        } catch (const std::exception& e) {
+            // Index entry decode nahi hoyi - oh entry miss ho jaayegi
+            // (Index entry didn't decode - that entry will be missed)
+            report(Severity::Error,
+                   cellContext(page_number, i, "IndexBTree::scanIndexLeafPage"), e.what());
             continue;
         }
     }
@@ -232,7 +256,13 @@ void IndexBTree::scanIndexInteriorPage(uint32_t page_number, std::function<void(
             } else {
                 scanIndexInteriorPage(left_child, callback);
             }
-        } catch (const std::exception&) {
+        } catch (const std::exception& e) {
+            // Left child padhi nahi ja sakdi - oh subtree kho jaayegi
+            // (Left child unreadable - that whole subtree is lost)
+            report(Severity::Error,
+                   cellContext(page_number, static_cast<uint16_t>(i),
+                               "IndexBTree::scanIndexInteriorPage"),
+                   e.what());
             continue;
         }
     }
@@ -249,7 +279,11 @@ void IndexBTree::scanIndexInteriorPage(uint32_t page_number, std::function<void(
             } else {
                 scanIndexInteriorPage(rightmost, callback);
             }
-        } catch (const std::exception&) {
+        } catch (const std::exception& e) {
+            // Right-most child padhi nahi ja sakdi - oh subtree kho jaayegi
+            // (Right-most child unreadable - that subtree is lost)
+            report(Severity::Error,
+                   pageContext(rightmost, "IndexBTree::scanIndexInteriorPage"), e.what());
         }
     }
 }
