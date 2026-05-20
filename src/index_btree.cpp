@@ -21,6 +21,14 @@ IndexBTree::IndexBTree(Database& database, uint32_t root_page_number)
     : database_(database)
     , root_page_number_(root_page_number)
 {
+    // Root page validate karo - BTree wale constructor jive
+    // (Validate the root page - same as the BTree constructor)
+    // Bina is de index banao hi chalda, phir pehli readPage te hi phat ta
+    // (Without this the index object builds fine, then blows up on the first readPage)
+    if (root_page_number == 0 || root_page_number > database.getPageCount()) {
+        throw std::runtime_error("Invalid index root page number yaar!");
+        // (Invalid index root page number dude!)
+    }
 }
 
 // ----------------------------------------------------------------------------
