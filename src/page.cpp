@@ -322,6 +322,25 @@ uint64_t Page::readVarintSafe(const uint8_t* data, size_t max_len, size_t& bytes
 }
 
 // ----------------------------------------------------------------------------
+// Read Big Endian 16-bit - 2 bytes nu number vich convert karo
+// (Convert 2 bytes to number)
+// ----------------------------------------------------------------------------
+uint16_t readBigEndian16(const uint8_t* data) {
+    return (static_cast<uint16_t>(data[0]) << 8) | data[1];
+}
+
+// ----------------------------------------------------------------------------
+// Read Big Endian 32-bit - 4 bytes nu number vich convert karo
+// (Convert 4 bytes to number)
+// ----------------------------------------------------------------------------
+uint32_t readBigEndian32(const uint8_t* data) {
+    return (static_cast<uint32_t>(data[0]) << 24) |
+           (static_cast<uint32_t>(data[1]) << 16) |
+           (static_cast<uint32_t>(data[2]) << 8) |
+           data[3];
+}
+
+// ----------------------------------------------------------------------------
 // Page Type to String - Debug lai page type print karo
 // (Print page type for debug)
 // ----------------------------------------------------------------------------

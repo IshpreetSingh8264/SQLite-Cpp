@@ -17,6 +17,11 @@
 // (B-tree is a tree in which data is in sorted order)
 // Assi jaldi naal koi vi record dhundh sakte
 // (We can quickly find any record)
+//
+// BTree (table) vich <payload, rowid> hunda, IndexBTree vich <key, rowid>.
+// (Table B-tree stores <payload, rowid>; index B-tree stores <key, rowid>.)
+// Dono de impl alag-alag files vich: btree.cpp te index_btree.cpp
+// (The two implementations live in separate files: btree.cpp and index_btree.cpp)
 // ============================================================================
 
 namespace sqlite {

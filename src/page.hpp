@@ -115,16 +115,10 @@ private:
 
 // Big endian read karo - SQLite sab kuch big endian vich rakhda
 // (Read big endian - SQLite keeps everything in big endian)
-inline uint16_t readBigEndian16(const uint8_t* data) {
-    return (static_cast<uint16_t>(data[0]) << 8) | data[1];
-}
-
-inline uint32_t readBigEndian32(const uint8_t* data) {
-    return (static_cast<uint32_t>(data[0]) << 24) |
-           (static_cast<uint32_t>(data[1]) << 16) |
-           (static_cast<uint32_t>(data[2]) << 8) |
-           data[3];
-}
+// Definitions live in page.cpp - this header holds contracts only.
+// (Definitions live in page.cpp - this header holds contracts only.)
+uint16_t readBigEndian16(const uint8_t* data);
+uint32_t readBigEndian32(const uint8_t* data);
 
 // String representation for debugging - Debug karde waqt page type print karo
 // (Print page type when debugging)
