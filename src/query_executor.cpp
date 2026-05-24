@@ -1,4 +1,5 @@
 #include "query_executor.hpp"
+#include "utils/like.hpp"
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -206,6 +207,16 @@ QueryResult QueryExecutor::indexScan(const SelectQuery& query, const TableDefini
         if (record_opt) {
             const Record& record = *record_opt;
             
+            // Index ton milya hua row phir se check karo.
+            // (Re-check the row we got back from the index.)
+            // Index di keys te jadon column de affinity naal jadon litral
+            // alag ho jande aa, tab hi ye zaroori hunda; warna ye har nahi.
+            // (Only needed when index keys and the literal can differ because of
+            // the column's affinity; for a plain text = text it is a no-op.)
+            if (query.where && !evaluateWhere(record, *query.where, table_def)) {
+                continue;
+            }
+            
             // Columns extract kar record vichon
             // (Extract columns from record)
             std::vector<std::string> row;
@@ -356,6 +367,28 @@ std::string QueryExecutor::columnValueToString(const ColumnValue& value) {
 }
 
 // ----------------------------------------------------------------------------
+// Literal Value to Text - WHERE value nu LIKE lai text bana do
+// (Convert a WHERE literal to text, for LIKE)
+// ----------------------------------------------------------------------------
+std::string QueryExecutor::literalValueToText(const LiteralValue& value) {
+    if (std::holds_alternative<std::string>(value)) {
+        return std::get<std::string>(value);
+    } else if (std::holds_alternative<int64_t>(value)) {
+        return std::to_string(std::get<int64_t>(value));
+    } else if (std::holds_alternative<double>(value)) {
+        std::ostringstream oss;
+        oss << std::get<double>(value);
+        return oss.str();
+    } else if (std::holds_alternative<bool>(value)) {
+        // SQLite bool nu 1/0 maan lenda aa
+        // (SQLite treats a boolean as 1/0)
+        return std::to_string(static_cast<int64_t>(std::get<bool>(value)));
+    }
+    
+    return "";
+}
+
+// ----------------------------------------------------------------------------
 // Find Column Index - Column naam ton index dhundho
 // (Find index from column name)
 // ----------------------------------------------------------------------------
@@ -379,6 +412,17 @@ bool QueryExecutor::compareValues(const ColumnValue& record_value, CompareOp op,
     // (NULL handling - NULL doesn't match with anything)
     if (std::holds_alternative<std::monostate>(record_value)) {
         return false;
+    }
+    
+    // LIKE alag de - SQLite da LIKE dono operands nu TEXT bana ke match karda,
+    // column de affinity nu koi matlab nahi padda ('é' jive multi-byte character
+    // te `1` jive number dono match ho sakde aa).
+    // (LIKE is special: SQLite's LIKE casts BOTH operands to TEXT before matching.
+    // The column's affinity plays no part, so a number and a multi-byte character
+    // can both match.)
+    if (op == CompareOp::LIKE) {
+        return sqlLikeMatch(columnValueToString(record_value),
+                            literalValueToText(literal_value));
     }
     
     // Integer comparison - numbers da comparison
@@ -427,10 +471,6 @@ bool QueryExecutor::compareValues(const ColumnValue& record_value, CompareOp op,
             case CompareOp::LESS_EQUAL: return rec_val <= lit_val;
             case CompareOp::GREATER_THAN: return rec_val > lit_val;
             case CompareOp::GREATER_EQUAL: return rec_val >= lit_val;
-            case CompareOp::LIKE: 
-                // Simple LIKE - basic pattern matching
-                // Future: Implement proper SQL LIKE with % and _
-                return rec_val.find(lit_val) != std::string::npos;
             default: return false;
         }
     }
@@ -455,6 +495,18 @@ const IndexDefinition* QueryExecutor::findUsableIndex(const SelectQuery& query,
     // Table de saare indexes check karo
     // (Check all indexes of table)
     auto index_names = schema_.getIndexesForTable(table_def->name);
+    
+    // Sirf '=' naal index use kar sakte aa. Baaki har operator lai index chahida
+    // hi nahi - `country > 'x'` lai range scan chahidi hundi aa, te `LIKE 'x%'`
+    // lai prefix scan. Assi sirf exact lookup karwan dende aa, isliye baaki
+    // operators te full table scan hi sahi rahega.
+    // (Only '=' can use the index. Every other operator would need a range scan
+    // ('country > x') or a prefix scan ("LIKE 'x%'"). We only implement exact
+    // lookups, so for every other operator the full table scan is the right plan
+    // - using the index there silently returns the wrong rows.)
+    if (query.where->op != CompareOp::EQUAL) {
+        return nullptr;
+    }
     
     for (const auto& index_name : index_names) {
         const IndexDefinition* index_def = schema_.getIndexDefinition(index_name);

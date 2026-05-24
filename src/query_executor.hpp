@@ -87,7 +87,11 @@ private:
     
     // Column value nu string vich convert karo display lai
     // (Convert column value to string for display)
-    std::string columnValueToString(const ColumnValue& value);
+    static std::string columnValueToString(const ColumnValue& value);
+    
+    // Literal value nu string vich convert karo LIKE lai
+    // (Convert a literal value to string, for LIKE)
+    static std::string literalValueToText(const LiteralValue& value);
     
     // Column naam vichon column index dhundho table vich
     // (Find column index from column name in table)
