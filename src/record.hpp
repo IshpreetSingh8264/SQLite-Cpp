@@ -1,5 +1,6 @@
 #pragma once
 
+#include "types/query.hpp"
 #include <vector>
 #include <cstdint>
 #include <string>
@@ -59,18 +60,11 @@ enum class SerialType {
 };
 
 // ----------------------------------------------------------------------------
-// Column Value - Ek column di value jo kisi bhi type di ho sakdi
-// (A column value which can be of any type)
+// Column Value - `types/query.hpp` vich define hundi hai, kyunki Record te
+// QueryExecutor dono lai chahidi hundi. Assi dobara define NAHI karde.
+// (ColumnValue is defined in `types/query.hpp` because both Record and
+// QueryExecutor need it. We do not define it a second time.)
 // ----------------------------------------------------------------------------
-// C++ variant use karde aa - ek variable vich alag alag types rakh sakte
-// (We use C++ variant - can store different types in one variable)
-using ColumnValue = std::variant<
-    std::monostate,     // NULL - kuch nahi (nothing)
-    int64_t,            // Integer values - saare numbers (all numbers)
-    double,             // Floating point - decimal numbers (decimal numbers)
-    std::string,        // Text strings - text data (text data)
-    std::vector<uint8_t> // Binary data (BLOB) - binary data (binary data)
->;
 
 // ----------------------------------------------------------------------------
 // Record Class - Ek database record represent karda

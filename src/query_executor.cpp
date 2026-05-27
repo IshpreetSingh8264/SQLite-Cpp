@@ -1,5 +1,6 @@
 #include "query_executor.hpp"
 #include "utils/like.hpp"
+#include "utils/value_compare.hpp"
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -292,7 +293,12 @@ bool QueryExecutor::evaluateWhere(const Record& record, const WhereCondition& wh
     
     // Compare karo
     // (Compare)
-    return compareValues(record_value, where.op, where.value);
+    // SQLite te hamesha column di declared type vichon affinity nikal ke dusre
+    // operand nu convert karda hai - `WHERE str_col = 5` nu bhi.
+    // (SQLite always derives an affinity from the column's declared type and
+    // converts the other operand, including for `WHERE str_col = 5`.)
+    return valueMatches(record_value, columnAffinity(columnTypeAt(col_index, table_def)),
+                        where.op, where.value);
 }
 
 // ----------------------------------------------------------------------------
@@ -354,35 +360,13 @@ std::string QueryExecutor::columnValueToString(const ColumnValue& value) {
     } else if (std::holds_alternative<int64_t>(value)) {
         return std::to_string(std::get<int64_t>(value));
     } else if (std::holds_alternative<double>(value)) {
-        std::ostringstream oss;
-        oss << std::get<double>(value);
-        return oss.str();
+        // SQLite jive render karo - 5.0 nu "5.0" dassna aa, "5" nahi
+        // (Render the way SQLite does: 5.0 must print as "5.0", not "5")
+        return realToText(std::get<double>(value));
     } else if (std::holds_alternative<std::string>(value)) {
         return std::get<std::string>(value);
     } else if (std::holds_alternative<std::vector<uint8_t>>(value)) {
         return "<BLOB>";
-    }
-    
-    return "";
-}
-
-// ----------------------------------------------------------------------------
-// Literal Value to Text - WHERE value nu LIKE lai text bana do
-// (Convert a WHERE literal to text, for LIKE)
-// ----------------------------------------------------------------------------
-std::string QueryExecutor::literalValueToText(const LiteralValue& value) {
-    if (std::holds_alternative<std::string>(value)) {
-        return std::get<std::string>(value);
-    } else if (std::holds_alternative<int64_t>(value)) {
-        return std::to_string(std::get<int64_t>(value));
-    } else if (std::holds_alternative<double>(value)) {
-        std::ostringstream oss;
-        oss << std::get<double>(value);
-        return oss.str();
-    } else if (std::holds_alternative<bool>(value)) {
-        // SQLite bool nu 1/0 maan lenda aa
-        // (SQLite treats a boolean as 1/0)
-        return std::to_string(static_cast<int64_t>(std::get<bool>(value)));
     }
     
     return "";
@@ -403,81 +387,15 @@ int QueryExecutor::findColumnIndex(const std::string& column_name, const TableDe
 }
 
 // ----------------------------------------------------------------------------
-// Compare Values - Do values compare karo operator naal
-// (Compare two values with operator)
+// Column Type At - Us index te column da declared type
+// (The declared type of the column at that index)
 // ----------------------------------------------------------------------------
-bool QueryExecutor::compareValues(const ColumnValue& record_value, CompareOp op,
-                                 const LiteralValue& literal_value) {
-    // NULL handling - NULL kisi naal vi match nahi
-    // (NULL handling - NULL doesn't match with anything)
-    if (std::holds_alternative<std::monostate>(record_value)) {
-        return false;
+std::string QueryExecutor::columnTypeAt(int column_index, const TableDefinition* table_def) {
+    if (column_index < 0 || column_index >= static_cast<int>(table_def->columns.size())) {
+        return "";
     }
     
-    // LIKE alag de - SQLite da LIKE dono operands nu TEXT bana ke match karda,
-    // column de affinity nu koi matlab nahi padda ('é' jive multi-byte character
-    // te `1` jive number dono match ho sakde aa).
-    // (LIKE is special: SQLite's LIKE casts BOTH operands to TEXT before matching.
-    // The column's affinity plays no part, so a number and a multi-byte character
-    // can both match.)
-    if (op == CompareOp::LIKE) {
-        return sqlLikeMatch(columnValueToString(record_value),
-                            literalValueToText(literal_value));
-    }
-    
-    // Integer comparison - numbers da comparison
-    // (Integer comparison - comparison of numbers)
-    if (std::holds_alternative<int64_t>(record_value) && std::holds_alternative<int64_t>(literal_value)) {
-        int64_t rec_val = std::get<int64_t>(record_value);
-        int64_t lit_val = std::get<int64_t>(literal_value);
-        
-        switch (op) {
-            case CompareOp::EQUAL: return rec_val == lit_val;
-            case CompareOp::NOT_EQUAL: return rec_val != lit_val;
-            case CompareOp::LESS_THAN: return rec_val < lit_val;
-            case CompareOp::LESS_EQUAL: return rec_val <= lit_val;
-            case CompareOp::GREATER_THAN: return rec_val > lit_val;
-            case CompareOp::GREATER_EQUAL: return rec_val >= lit_val;
-            default: return false;
-        }
-    }
-    
-    // Float comparison - decimal numbers
-    if (std::holds_alternative<double>(record_value) && std::holds_alternative<double>(literal_value)) {
-        double rec_val = std::get<double>(record_value);
-        double lit_val = std::get<double>(literal_value);
-        
-        switch (op) {
-            case CompareOp::EQUAL: return rec_val == lit_val;
-            case CompareOp::NOT_EQUAL: return rec_val != lit_val;
-            case CompareOp::LESS_THAN: return rec_val < lit_val;
-            case CompareOp::LESS_EQUAL: return rec_val <= lit_val;
-            case CompareOp::GREATER_THAN: return rec_val > lit_val;
-            case CompareOp::GREATER_EQUAL: return rec_val >= lit_val;
-            default: return false;
-        }
-    }
-    
-    // String comparison - text da comparison
-    // (String comparison - comparison of text)
-    if (std::holds_alternative<std::string>(record_value) && std::holds_alternative<std::string>(literal_value)) {
-        const std::string& rec_val = std::get<std::string>(record_value);
-        const std::string& lit_val = std::get<std::string>(literal_value);
-        
-        switch (op) {
-            case CompareOp::EQUAL: return rec_val == lit_val;
-            case CompareOp::NOT_EQUAL: return rec_val != lit_val;
-            case CompareOp::LESS_THAN: return rec_val < lit_val;
-            case CompareOp::LESS_EQUAL: return rec_val <= lit_val;
-            case CompareOp::GREATER_THAN: return rec_val > lit_val;
-            case CompareOp::GREATER_EQUAL: return rec_val >= lit_val;
-            default: return false;
-        }
-    }
-    
-    // Type mismatch - false return kar
-    // (Type mismatch - return false)
-    return false;
+    return table_def->columns[static_cast<size_t>(column_index)].type;
 }
 
 // ----------------------------------------------------------------------------

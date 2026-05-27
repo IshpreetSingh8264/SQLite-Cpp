@@ -1,5 +1,6 @@
 #pragma once
 
+#include "types/query.hpp"
 #include <string>
 #include <vector>
 #include <optional>
@@ -14,71 +15,14 @@
 // SELECT name, age FROM users WHERE age > 18
 // Eh query nu break karke samajh lade - kina naam, ki table, ki condition
 // (Break this query and understand - column names, which table, which condition)
+//
+// Eh file sirf TEXT nu SQL tokens vich tori hai. Oh data shapes (CompareOp,
+// WhereCondition, SelectQuery, ...) `types/query.hpp` vich ne.
+// (This file only turns text into SQL tokens. The data shapes live in
+// `types/query.hpp`.)
 // ============================================================================
 
 namespace sqlite {
-
-// ----------------------------------------------------------------------------
-// Comparison Operators - WHERE clause vich comparisons
-// (Comparisons in WHERE clause)
-// ----------------------------------------------------------------------------
-enum class CompareOp {
-    EQUAL,              // = - equal aa (is equal)
-    NOT_EQUAL,          // != or <> - equal nahi (not equal)
-    LESS_THAN,          // < - chhota aa (is less than)
-    LESS_EQUAL,         // <= - chhota ya equal (less than or equal)
-    GREATER_THAN,       // > - wadda aa (is greater than)
-    GREATER_EQUAL,      // >= - wadda ya equal (greater than or equal)
-    LIKE,               // LIKE - pattern match (pattern match)
-    UNKNOWN             // Unknown operator - samajh nahi aaya (didn't understand)
-};
-
-// ----------------------------------------------------------------------------
-// Literal Value - WHERE clause vich values (numbers, strings)
-// (Values in WHERE clause (numbers, strings))
-// ----------------------------------------------------------------------------
-using LiteralValue = std::variant<
-    int64_t,        // Integer value - number (number)
-    double,         // Float value - decimal (decimal)
-    std::string,    // String value - text (text)
-    bool            // Boolean - true/false (true/false)
->;
-
-// ----------------------------------------------------------------------------
-// WHERE Condition - Ek condition represent kardi
-// (Represents one condition)
-// ----------------------------------------------------------------------------
-// Example: age > 18
-//   column = "age"
-//   op = GREATER_THAN
-//   value = 18
-struct WhereCondition {
-    std::string column_name;    // Column naam - kis column te check (column name - check on which column)
-    CompareOp op;               // Comparison operator
-    LiteralValue value;         // Compare karne wali value (value to compare with)
-    
-    // Constructor
-    WhereCondition() : op(CompareOp::UNKNOWN) {}
-};
-
-// ----------------------------------------------------------------------------
-// SELECT Query - Puri SELECT query di information
-// (Complete SELECT query information)
-// ----------------------------------------------------------------------------
-struct SelectQuery {
-    std::vector<std::string> columns;       // Kine columns select karne (which columns to select)
-    bool select_all;                        // * hai ya nahi - saare columns (is * or not - all columns)
-    std::string table_name;                 // Kis table vichon (from which table)
-    std::optional<WhereCondition> where;    // WHERE clause - filter condition (filter condition)
-    std::optional<std::string> order_by_column; // ORDER BY column (ORDER BY column)
-    bool order_desc;                        // Descending order - ulta order (reverse order)
-    std::optional<int64_t> limit;           // LIMIT - kitne rows (how many rows)
-    
-    // Constructor - Default values set karo
-    // (Set default values)
-    SelectQuery() 
-        : select_all(false), order_desc(false) {}
-};
 
 // ----------------------------------------------------------------------------
 // SQL Parser Class - SQL queries parse karda

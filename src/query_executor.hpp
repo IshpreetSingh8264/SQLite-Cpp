@@ -89,17 +89,12 @@ private:
     // (Convert column value to string for display)
     static std::string columnValueToString(const ColumnValue& value);
     
-    // Literal value nu string vich convert karo LIKE lai
-    // (Convert a literal value to string, for LIKE)
-    static std::string literalValueToText(const LiteralValue& value);
-    
-    // Column naam vichon column index dhundho table vich
-    // (Find column index from column name in table)
+    // Column index kadho, te usde column da type dasso
+    // (Get a column's index, and its declared type)
+    // Comparison lai column da type chahida - affinity nikalne lai.
+    // (Comparison needs the column's type: it is where affinity comes from.)
     int findColumnIndex(const std::string& column_name, const TableDefinition* table_def);
-    
-    // Comparison karo do values di
-    // (Compare two values)
-    bool compareValues(const ColumnValue& record_value, CompareOp op, const LiteralValue& literal_value);
+    std::string columnTypeAt(int column_index, const TableDefinition* table_def);
     
     // Check karo ki index use ho sakda query lai
     // (Check if index can be used for query)
