@@ -251,22 +251,3 @@ int main(int argc, char* argv[]) {
     // (Everything is fine - success!)
     return 0;
 }
-
-// ============================================================================
-// Shabash! Program complete aa!
-// (Bravo! Program is complete!)
-//
-// Features implemented:
-//   ✓ Database header parsing - 100 bytes di puri jankari (complete 100 byte info)
-//   ✓ Page reading - saare page types (all page types)
-//   ✓ B-tree navigation - tree vich ghoomna (roaming in tree)
-//   ✓ Record decoding - varint, serial types, sab kuch (varint, serial types, everything)
-//   ✓ Schema parsing - tables te indexes (tables and indexes)
-//   ✓ SQL parsing - SELECT queries samajhna (understanding SELECT queries)
-//   ✓ Query execution - full scan te index scan (full scan and index scan)
-//   ✓ WHERE clause filtering - conditions check karna (checking conditions)
-//   ✓ Multiple column support - kai saare columns (many columns)
-//
-// Assi pura SQLite bana ditta! Kaam khatam!
-// (We built complete SQLite! Work done!)
-// ============================================================================
