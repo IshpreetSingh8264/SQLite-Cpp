@@ -97,14 +97,9 @@ QueryResult QueryExecutor::fullTableScan(const SelectQuery& query, const TableDe
         result.column_names = query.columns;
     }
     
-    // Check karo ki pehla column INTEGER PRIMARY KEY aa
-    // (Check if first column is INTEGER PRIMARY KEY)
-    bool has_rowid_column = false;
-    if (!table_def->columns.empty() && table_def->columns[0].is_primary_key) {
-        // Pehla column primary key aa - rowid use hunda
-        // (First column is primary key - uses rowid)
-        has_rowid_column = true;
-    }
+    // Check karo ki kaunsa column rowid da alias aa
+    // (Work out which column, if any, is the rowid alias)
+    const int rowid_alias = rowIdAliasIndex(*table_def);
     
     // B-tree scan karo
     // (Scan B-tree)
@@ -126,25 +121,13 @@ QueryResult QueryExecutor::fullTableScan(const SelectQuery& query, const TableDe
         std::vector<std::string> row;
         
         if (query.select_all || query.columns.empty()) {
-            // Saare columns (all columns)
-            if (has_rowid_column) {
-                // Pehla column table definition vich rowid aa
-                // (First column in table definition is rowid)
-                row.push_back(std::to_string(record.getRowId()));
-                // Record pehle column vich NULL placeholder aa, skip kar
-                // (Record first column has NULL placeholder, skip it)
-                // Baaki columns (1 onwards) output kar
-                // (Output remaining columns (1 onwards))
-                for (size_t i = 1; i < record.getColumnCount(); ++i) {
-                    row.push_back(columnValueToString(record.getColumnValue(i)));
-                }
-            } else {
-                // Koi rowid column nahi - saare record columns output kar
-                // (No rowid column - output all record columns)
-                for (size_t i = 0; i < record.getColumnCount(); ++i) {
-                    row.push_back(columnValueToString(record.getColumnValue(i)));
-                }
-            }
+            // Saare columns
+            // (All columns)
+            // Rowid alias wale column da record vich NULL placeholder hunda, isliye
+            // usde jagah record de rowid print karna padta hai.
+            // (The rowid alias column holds a NULL placeholder in the record, so
+            // the record's rowid has to be printed in its place.)
+            row = projectWholeRecord(record, table_def, rowid_alias);
         } else {
             // Specific columns
             row = extractColumns(record, query.columns, table_def);
@@ -155,6 +138,43 @@ QueryResult QueryExecutor::fullTableScan(const SelectQuery& query, const TableDe
     });
     
     return result;
+}
+
+// ----------------------------------------------------------------------------
+// Project Whole Record - Poora record table de column order vich project karo
+// (Project a whole record in the table's column order)
+// ----------------------------------------------------------------------------
+// Ke columns hain te oh kithon aane ne, ohdi decision ohdaar aa; ohna da kaam
+// ikhde. Isliye indexScan te fullTableScan dono ihdi function use karde aa.
+// (Deciding which columns exist and where they come from belongs to the caller;
+// this is only the rendering. So indexScan and fullTableScan share it.)
+std::vector<std::string> QueryExecutor::projectWholeRecord(const Record& record,
+                                                          const TableDefinition* table_def,
+                                                          int rowid_alias) {
+    std::vector<std::string> row;
+    
+    // Alias hundi te us column tak da schema hisaab poora hona chahida
+    // (With an alias, go as far as the schema says the table goes)
+    size_t width = record.getColumnCount();
+    if (rowid_alias >= 0) {
+        width = std::max(width, table_def->columns.size());
+    }
+    
+    row.reserve(width);
+    
+    for (size_t i = 0; i < width; ++i) {
+        if (static_cast<int>(i) == rowid_alias) {
+            // Ye column rowid da alias aa - asli value rowid hi aa
+            // (This column aliases the rowid: its real value IS the rowid)
+            row.push_back(std::to_string(record.getRowId()));
+        } else if (i < record.getColumnCount()) {
+            row.push_back(columnValueToString(record.getColumnValue(i)));
+        } else {
+            row.push_back("NULL");
+        }
+    }
+    
+    return row;
 }
 
 // ----------------------------------------------------------------------------
@@ -175,12 +195,9 @@ QueryResult QueryExecutor::indexScan(const SelectQuery& query, const TableDefini
         result.column_names = query.columns;
     }
     
-    // Check karo ki pehla column INTEGER PRIMARY KEY aa
-    // (Check if first column is INTEGER PRIMARY KEY)
-    bool has_rowid_column = false;
-    if (!table_def->columns.empty() && table_def->columns[0].is_primary_key) {
-        has_rowid_column = true;
-    }
+    // Check karo ki kaunsa column rowid da alias aa
+    // (Work out which column, if any, is the rowid alias)
+    const int rowid_alias = rowIdAliasIndex(*table_def);
     
     // WHERE value kadho - string vich convert kar
     // (Get WHERE value - convert to string)
@@ -224,16 +241,7 @@ QueryResult QueryExecutor::indexScan(const SelectQuery& query, const TableDefini
             
             if (query.select_all || query.columns.empty()) {
                 // Saare columns (all columns)
-                if (has_rowid_column) {
-                    row.push_back(std::to_string(record.getRowId()));
-                    for (size_t i = 1; i < record.getColumnCount(); ++i) {
-                        row.push_back(columnValueToString(record.getColumnValue(i)));
-                    }
-                } else {
-                    for (size_t i = 0; i < record.getColumnCount(); ++i) {
-                        row.push_back(columnValueToString(record.getColumnValue(i)));
-                    }
-                }
+                row = projectWholeRecord(record, table_def, rowid_alias);
             } else {
                 row = extractColumns(record, query.columns, table_def);
             }
@@ -262,18 +270,15 @@ bool QueryExecutor::evaluateWhere(const Record& record, const WhereCondition& wh
         return false;
     }
     
-    // Check karo ki rowid column aa
-    // (Check if it's rowid column)
-    bool has_rowid_column = false;
-    if (!table_def->columns.empty() && table_def->columns[0].is_primary_key) {
-        has_rowid_column = true;
-    }
+    // Check karo ki kaunsa column rowid da alias aa
+    // (Work out which column, if any, is the rowid alias)
+    const int rowid_alias = rowIdAliasIndex(*table_def);
     
     ColumnValue record_value;
     
-    if (has_rowid_column && col_index == 0) {
-        // Pehla column rowid aa
-        // (First column is rowid)
+    if (rowid_alias >= 0 && col_index == rowid_alias) {
+        // Ye column rowid da alias aa - value rowid hi aa, record vich NULL hai
+        // (This column aliases the rowid: its value is the rowid, NULL in the record)
         record_value = record.getRowId();
     } else {
         // Record vichon value kadho
@@ -310,34 +315,27 @@ std::vector<std::string> QueryExecutor::extractColumns(const Record& record,
                                                        const TableDefinition* table_def) {
     std::vector<std::string> values;
     
-    // Check karo ki pehla column rowid column aa
-    // (Check if first column is rowid column)
-    bool has_rowid_column = false;
-    if (!table_def->columns.empty() && table_def->columns[0].is_primary_key) {
-        has_rowid_column = true;
-    }
+    // Check karo ki kaunsa column rowid da alias aa
+    // (Work out which column, if any, is the rowid alias)
+    const int rowid_alias = rowIdAliasIndex(*table_def);
     
     for (const std::string& col_name : column_names) {
         int col_index = findColumnIndex(col_name, table_def);
         
         if (col_index >= 0) {
-            // Column mileya - check karo rowid aa ya nahi
-            // (Column found - check if it's rowid or not)
-            if (has_rowid_column && col_index == 0) {
-                // Pehla column rowid aa
-                // (First column is rowid)
+            // Column mileya - check karo rowid alias aa ya nahi
+            // (Column found - check whether it is the rowid alias)
+            if (rowid_alias >= 0 && col_index == rowid_alias) {
                 values.push_back(std::to_string(record.getRowId()));
             } else {
-                // Record vichon kadho
-                // (Get from record)
-                // Note: agar has_rowid_column aa, te record de pehle column vich NULL placeholder aa
-                // (Note: if has_rowid_column is true, first record column has NULL placeholder)
-                // So actual columns record vich col_index te shuru nahi, balki same index te ne
-                // (So actual columns in record start at same index, not col_index - 1)
-                int record_index = col_index;  // Same as schema index!
-                
-                if (record_index >= 0 && record_index < static_cast<int>(record.getColumnCount())) {
-                    values.push_back(columnValueToString(record.getColumnValue(record_index)));
+                // Record vichon kadho. Schema index te record index same hi hai -
+                // rowid alias wale column da NULL placeholder usi position te baitha
+                // hunda hai, isliye koi shift nahi karna.
+                // (Take it from the record. The schema index and the record index
+                // are the same, because the rowid alias column's NULL placeholder
+                // sits at that same position, so nothing needs shifting.)
+                if (col_index < static_cast<int>(record.getColumnCount())) {
+                    values.push_back(columnValueToString(record.getColumnValue(col_index)));
                 } else {
                     values.push_back("NULL");
                 }

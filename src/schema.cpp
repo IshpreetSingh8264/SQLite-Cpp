@@ -290,6 +290,20 @@ std::vector<ColumnDefinition> Schema::parseColumns(const std::string& sql) {
         col.is_primary_key = (lower_def.find("primary key") != std::string::npos);
         col.not_null = (lower_def.find("not null") != std::string::npos) || col.is_primary_key;
         
+        // "PRIMARY KEY DESC" nu pehchano - eh case vich oh column rowid da
+        // alias NAHI hunda, chahe type INTEGER hi likheya ho.
+        // (Spot "PRIMARY KEY DESC": in that case the column is NOT a rowid alias,
+        // even when the declared type is INTEGER.)
+        if (col.is_primary_key) {
+            size_t pk_pos = lower_def.find("primary key");
+            size_t after = pk_pos + std::string("primary key").size();
+            while (after < lower_def.size() && std::isspace(static_cast<unsigned char>(lower_def[after]))) {
+                after++;
+            }
+            col.primary_key_desc =
+                (lower_def.compare(after, 4, "desc") == 0);
+        }
+        
         columns.push_back(col);
     }
     
@@ -346,6 +360,47 @@ std::vector<std::string> Schema::parseIndexColumns(const std::string& sql) {
     }
     
     return columns;
+}
+
+// ----------------------------------------------------------------------------
+// Is Integer Primary Key - Kya e column rowid da alias aa?
+// (Is this column an alias for the rowid?)
+// ----------------------------------------------------------------------------
+bool isIntegerPrimaryKey(const ColumnDefinition& column) {
+    // "PRIMARY KEY DESC" rowid alias NAHI banada, chahe type INTEGER hi kyun na ho
+    // ("PRIMARY KEY DESC" does not become a rowid alias, even with type INTEGER)
+    if (!column.is_primary_key || column.primary_key_desc) {
+        return false;
+    }
+    
+    // Type BILKUL "INTEGER" hona chahida - "INT" ya "BIGINT" ya "INTEGER(8)" nahi
+    // (The type must be EXACTLY "INTEGER" - not "INT", "BIGINT" or "INTEGER(8)")
+    // Spaces hata ke, case ki koi galat nahi karke
+    // (Spaces stripped, case irrelevant)
+    std::string normalized;
+    for (char c : column.type) {
+        if (!std::isspace(static_cast<unsigned char>(c))) {
+            normalized += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        }
+    }
+    
+    return normalized == "INTEGER";
+}
+
+// ----------------------------------------------------------------------------
+// Row Id Alias Index - Rowid da alias kaun sa column aa
+// (Which column is the rowid alias)
+// ----------------------------------------------------------------------------
+int rowIdAliasIndex(const TableDefinition& table) {
+    for (size_t i = 0; i < table.columns.size(); ++i) {
+        if (isIntegerPrimaryKey(table.columns[i])) {
+            return static_cast<int>(i);
+        }
+    }
+    
+    // Koi alias nahi - har column apni value record vich rakhta hai
+    // (No alias: every column keeps its own value in the record)
+    return -1;
 }
 
 } // namespace sqlite

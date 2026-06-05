@@ -42,12 +42,14 @@ struct ColumnDefinition {
     std::string type;           // Data type - INTEGER, TEXT, BLOB, REAL (data type)
     bool is_primary_key;        // Primary key hai ya nahi (is it primary key or not)
     bool not_null;              // NULL ho sakda ya nahi (can be NULL or not)
+    bool primary_key_desc;      // "PRIMARY KEY DESC" likheya si ya nahi
+                                // (was it declared "PRIMARY KEY DESC")
     std::string default_value;  // Default value - agar kuch nahi dita (if nothing given)
     
     // Constructor - Column definition bana
     // (Create column definition)
     ColumnDefinition(const std::string& n = "", const std::string& t = "")
-        : name(n), type(t), is_primary_key(false), not_null(false) {}
+        : name(n), type(t), is_primary_key(false), not_null(false), primary_key_desc(false) {}
 };
 
 // ----------------------------------------------------------------------------
@@ -154,5 +156,31 @@ private:
     std::map<std::string, IndexDefinition> indexes_;    // Index naam -> definition (index name -> definition)
     bool loaded_;                                       // Schema load hoyi ya nahi (schema loaded or not)
 };
+
+// ----------------------------------------------------------------------------
+// Is Integer Primary Key - Kya e column rowid da alias aa?
+// (Is this column an alias for the rowid?)
+// ----------------------------------------------------------------------------
+// SQLite de hisaab naal sirf e column rowid da alias hunda:
+// (Under SQLite's rules exactly this column is a rowid alias:)
+//   1. oh PRIMARY KEY ho                  (it is the PRIMARY KEY)
+//   2. usda declared type BILKUL "INTEGER" ho, case ki koi galat nahi
+//      (its declared type is EXACTLY "INTEGER", any case)
+//   3. "PRIMARY KEY DESC" na ho - eh de case vich rowid alias NAHI hunda
+//      (it is not "PRIMARY KEY DESC": in that case it is not a rowid alias)
+//
+// "INT PRIMARY KEY" bhi rowid alias NAHI hunda, te oh vich koi position te hove.
+// ("INT PRIMARY KEY" is not a rowid alias either, and neither is any position.)
+bool isIntegerPrimaryKey(const ColumnDefinition& column);
+
+// ----------------------------------------------------------------------------
+// Row Id Alias Index - Us column da index jo rowid da alias aa, warna -1
+// (The index of the column that aliases the rowid, or -1 if there is none)
+// ----------------------------------------------------------------------------
+// Rowid alias BINARY search layi hunda, isliye oh INDEX da role karda hai, te
+// oh kade vi position te ho sakda aa - hamesha pehla column nahi hunda.
+// (The rowid alias is what a rowid lookup uses, so it plays the role of the
+// index, and it can sit at any position - it is not always the first column.)
+int rowIdAliasIndex(const TableDefinition& table);
 
 } // namespace sqlite

@@ -85,6 +85,14 @@ private:
                                            const std::vector<std::string>& column_names,
                                            const TableDefinition* table_def);
     
+    // Poora record table de column order vich project karo, rowid alias sahit
+    // (Project a whole record in the table's column order, rowid alias included)
+    // `rowid_alias` woh index aa jo record de rowid da alias hai, warna -1
+    // (`rowid_alias` is the index that aliases the record's rowid, else -1)
+    static std::vector<std::string> projectWholeRecord(const Record& record,
+                                                       const TableDefinition* table_def,
+                                                       int rowid_alias);
+    
     // Column value nu string vich convert karo display lai
     // (Convert column value to string for display)
     static std::string columnValueToString(const ColumnValue& value);
