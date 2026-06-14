@@ -196,12 +196,37 @@ diff <(./your_program.sh sample.db "SELECT * FROM apples" 2>/dev/null) \
 
 `utils/like` and `utils/value_compare` are pure functions, so they can be
 compiled into a throwaway probe and fuzzed against `sqlite3` directly. That is how
-the LIKE and affinity rules were verified (21,118 and 72,072 combinations
-respectively) and it is much faster than going through the CLI.
+the LIKE and affinity rules were verified, and it is much faster than going
+through the CLI.
+
+Both of those are now permanent, in one command, from a clean checkout:
+
+```sh
+./tests/run.sh              # 15,535 assertions: 15,487 fuzz + 48 differential
+./tests/run.sh fuzz         # just the fuzz against real sqlite3
+./tests/run.sh differential # just the CLI differential on the sample DBs
+ctest --test-dir build      # same suites, via CTest
+```
+
+The oracle is the real `sqlite3` — the CLI binary and the `sqlite3` module in
+CPython — never a recorded expectation file. The differential suite **refuses
+to run without the `sqlite3` CLI** rather than skipping, because without it
+there is no oracle and the suite would be theatre.
+
+Known gaps are reported as `XFAIL` so the suite stays a usable gate, and a
+known gap that starts matching is reported as a **failure** — so fixing one
+turns the suite red until you remove it from the list. `tests/README.md`
+documents what these suites deliberately do not cover; read it before trusting
+a green run. The most important omission: nothing here fuzzes the b-tree, the
+page layer or the record codec, which is why the payload-overflow gap stays
+invisible.
 
 ## 9. Known gaps — do not mistake these for finished work
 
-These are real and still open. If you fix one, remove it from this list.
+These are real and still open. If you fix one, remove it from this list. The
+two marked **[new]** were found by `tests/differential/compare_cli.sh` and are
+pinned there as XFAIL, so that suite fails if either starts working — remove it
+from both places at once.
 
 - **`COUNT(*)` ignores the WHERE clause.** The `COUNT(*)` shortcut in
   `src/commands/command_registry.cpp` extracts the table name and counts the whole
@@ -236,6 +261,23 @@ These are real and still open. If you fix one, remove it from this list.
 - **REAL rendering** follows SQLite's `%.15g` plus a trailing `.0`, so `5.0` prints
   as `5.0`, but the conversion goes through `strtod`/`snprintf` rather than
   SQLite's own routine and was not exhaustively compared for extreme magnitudes.
+- **[new] `NULL` is parsed as the four-character text `'NULL'`.**
+  `SqlParser::parseLiteral` has no NULL case, so a bareword `NULL` falls
+  through to the "everything else is a string" branch. `LiteralValue` cannot
+  even represent NULL — it is `variant<int64_t, double, string, bool>`.
+  Consequence: `WHERE id != NULL`, `< NULL` and `<= NULL` compare the column
+  against the *text* `'NULL'`, which outranks every number, so all three are
+  true for every row where real SQLite returns none. `= NULL`, `> NULL` and
+  `>= NULL` return the right answer by coincidence, not by design — do not read
+  those three as evidence that NULL handling works. Fixing this means adding
+  NULL to `LiteralValue` and checking for it in `parseLiteral` and
+  `valueMatches`.
+- **[new] An unknown column returns `NULL` rows instead of an error.**
+  `SELECT color FROM oranges` prints one `NULL` per row where real SQLite
+  raises `no such column: color`. A typo'd column therefore looks like a
+  successful query that happened to match everything, which is the most
+  dangerous shape a bug can take here. `sql_parser.cpp` does not resolve
+  column names against the schema.
 - **`ORDER BY` is parsed and then ignored.** `SqlParser::parseSelect` fills
   `order_by_column` and `order_desc`; nothing in the executor ever reads them.
   `LIMIT` is not even parsed — the `SelectQuery::limit` field is never assigned.
