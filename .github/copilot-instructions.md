@@ -59,7 +59,7 @@ are different concepts with different cell formats.
 
 Every header has a matching `.cpp`. `CMakeLists.txt` uses
 `GLOB_RECURSE ... CONFIGURE_DEPENDS`, so adding a file re-triggers the build;
-`target_include_directories(sqlite PRIVATE src)` lets layers reach each other by
+`target_include_directories(sqlitecore PUBLIC src)` lets layers reach each other by
 role (`src/utils/...` includes `"types/query.hpp"`).
 
 ## 3. Data flow
@@ -231,8 +231,10 @@ from both places at once.
 - **`COUNT(*)` ignores the WHERE clause.** The `COUNT(*)` shortcut in
   `src/commands/command_registry.cpp` extracts the table name and counts the whole
   table, so on `sample.db` `SELECT COUNT(*) FROM apples WHERE id = 1` prints `4`
-  where real SQLite prints `1`. `QueryExecutor::count()` is the unused, more correct
-  entry point. **This is the highest-value fix in this list.**
+  where real SQLite prints `1`. `QueryExecutor::count()` in `src/query_executor.cpp`
+  is an unused entry point for the same job, but it has the same limitation — it also
+  counts the whole table with no predicate — so switching to it is not the fix.
+  **This is the highest-value fix in this list.**
 - **The index planner is exact-lookup only.** An index on a column is used only
   for `=`. `>`, `<` and `LIKE` on an indexed column fall back to a full scan, which
   is correct but slow. Real range and prefix scans are not implemented.

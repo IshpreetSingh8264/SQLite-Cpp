@@ -1,6 +1,6 @@
 // A single probe binary for the three pure functions in utils/, so the fuzz
 // suites can drive them directly instead of going through the CLI. Going
-// through the CLI would mean one process per case; at ~11,000 cases that is
+// through the CLI would mean one process per case; at ~15,500 cases that is
 // the difference between seconds and minutes, and the point of these functions
 // being pure is that they can be tested directly.
 //
